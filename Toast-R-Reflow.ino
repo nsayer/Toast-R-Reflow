@@ -19,18 +19,18 @@
  
 */
 
-#include <Wire.h>
+#include <TinyWireM.h>
 #include <LiquidTWI2.h>
 #include <PID_v1.h>
 
 #define LCD_I2C_ADDR 0x20 // for adafruit shield or backpack
 
 // This is the AD595 reading analog pin.
-#define TEMP_SENSOR_PIN 0
+#define TEMP_SENSOR_PIN 3
 
 // These pins turn on the two heating elements.
-#define ELEMENT_ONE_PIN 2
-#define ELEMENT_TWO_PIN 3
+#define ELEMENT_ONE_PIN 1
+#define ELEMENT_TWO_PIN 4
 
 // This value is degrees C per A/D unit.
 // The spec sheet for the AD595 says the output is 10 mV per degree C.
@@ -47,7 +47,7 @@
 #define AMBIENT_TEMP 25.0
 
 // fiddle these knobs
-#define K_P 5
+#define K_P 500
 #define K_I 0
 #define K_D 0
 
@@ -66,7 +66,7 @@
 #define EVENT_SHORT_PUSH 1
 #define EVENT_LONG_PUSH 2
 
-#define VERSION "0.1"
+#define VERSION "0.2"
 
 struct curve_point {
   // Display this string on the display during this phase
@@ -111,28 +111,31 @@ double setPoint, currentTemp, outputDuty;
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
 
 unsigned int checkEvent() {
-  if (button_debounce_time != 0 && millis() - button_debounce_time < BUTTON_DEBOUNCE_INTERVAL) {
-    // debounce is in progress
-    return EVENT_NONE;
-  } else {
-    // debounce is over
-    button_debounce_time = 0;
+  unsigned long now = millis();
+  if (button_debounce_time != 0) {
+    if (now - button_debounce_time < BUTTON_DEBOUNCE_INTERVAL) {
+      // debounce is in progress
+      return EVENT_NONE;
+    } else {
+      // debounce is over
+      button_debounce_time = 0;
+    }
   }
   unsigned int buttons = display.readButtons();
   if ((buttons & BUTTON) != 0) {
     // Button is down
     if (button_press_time == 0) { // this is the start of a press.
-      button_debounce_time = button_press_time = millis();
+      button_debounce_time = button_press_time = now;
     }
     return EVENT_NONE; // We don't know what this button-push is going to be yet
   } else {
     // Button released
     if (button_press_time == 0) return EVENT_NONE; // It wasn't down anyway.
     // We are now ending a button-push. First, start debuncing.
-    button_debounce_time = millis();
-    unsigned long button_pushed_time = button_debounce_time - button_press_time;
+    button_debounce_time = now;
+    unsigned long push_duration = now - button_press_time;
     button_press_time = 0;
-    if (button_pushed_time > BUTTON_LONG_START) {
+    if (push_duration > BUTTON_LONG_START) {
       return EVENT_LONG_PUSH;
     } else {
       return EVENT_SHORT_PUSH;
