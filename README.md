@@ -10,13 +10,11 @@ as an i2c bus to drive an Adafruit 2 line display shield or backpack.
 
 This project requires the following libraries:
 
-TinyWireM   https://github.com/adafruit/TinyWireM
-PID         https://github.com/br3ttb/Arduino-PID-Library
-LiquidTWI2  https://github.com/lincomatic/LiquidTWI2
+* TinyWireM: https://github.com/adafruit/TinyWireM
+* PID: https://github.com/br3ttb/Arduino-PID-Library
+* LiquidTWI2: https://github.com/lincomatic/LiquidTWI2
 
 It also will require some sort of Arduino IDE support for ATTiny controllers. I used the MIT patch at
 http://hlt.media.mit.edu/?p=1695
 
-Version 0.1 has not actually been converted to ATTiny yet. I'm developing the code at present with an Uno. As soon
-as the oven can actually reflow a board, then I'll make the final hardware, and then convert the sketch
-for that.
+Version 0.2 still lacks proper values for Kp, Ki and Kd. So it's not ready for prime time quite yet.
