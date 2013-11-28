@@ -26,34 +26,40 @@
 #define LCD_I2C_ADDR 0x20 // for adafruit shield or backpack
 
 // This is the AD595 reading analog pin.
-#define TEMP_SENSOR_PIN 3
+#define TEMP_SENSOR_PIN A3
 
 // These pins turn on the two heating elements.
 #define ELEMENT_ONE_PIN 1
 #define ELEMENT_TWO_PIN 4
 
-// This value is degrees C per A/D unit.
+// This is the conversaion factor for the A/D converter
+// It's the number of millivolts per unit from analogRead()
+#define MV_PER_UNIT (vcc_millis/1024)
+
+// This value is mV per degree C
 // The spec sheet for the AD595 says the output is 10 mV per degree C.
-// The A/D range is 5 volts over 1024 units. That's 4.8 mV per unit.
-// mV per unit divided by mv per degC = degC per unit.
-#define TEMP_SCALING_FACTOR 0.48828125
+#define TEMP_SCALING_FACTOR 10
 // If you're using an AD8495, then that chip has a spec of 5 mV per degree C.
-// #define TEMP_SCALING_FACTOR 0.9765625
+// #define TEMP_SCALING_FACTOR 5
 
 // How often do we update the displayed temp?
-#define DISPLAY_UPDATE_INTERVAL 250
+#define DISPLAY_UPDATE_INTERVAL 500
 
 // A reasonable approximation of room temperature.
 #define AMBIENT_TEMP 25.0
 
 // fiddle these knobs
-#define K_P 500
-#define K_I 0
+#define K_P 50
+#define K_I 10
 #define K_D 0
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
 #define PWM_PULSE_WIDTH 1000
+
+// To get a temperature reading, read it a bunch of times and take the average.
+// This will cut down on the noise.
+#define SAMPLE_COUNT 1
 
 // Which button do we use?
 #define BUTTON BUTTON_SELECT
@@ -66,10 +72,10 @@
 #define EVENT_SHORT_PUSH 1
 #define EVENT_LONG_PUSH 2
 
-#define VERSION "0.2"
+#define VERSION "0.3"
 
 struct curve_point {
-  // Display this string on the display during this phase
+  // Display this string on the display during this phase. Maximum 8 characters long.
   const char *phase_name;
   // The duration of this phase, in milliseconds
   unsigned long duration_millis;
@@ -81,21 +87,22 @@ struct curve_point {
 // This table is the complete operational profile of the oven.
 // This example is intended for tin-lead based paste. For RoHS
 // solder, you'll need to adjust it.
-struct curve_point profile[] = {
+const struct curve_point profile[] = {
   // Drift from the ambient temperature to 150 deg C over 90 seconds.
   { "Preheat", 90000, 150.0 },
-  // Stay at 150 deg C for 90 seconds.
-  { "Soak", 90000, 150.0 },
+  // Drift more slowly up to 180 deg C over 60 seconds.
+  { "Soak", 60000, 180.0 },
   // This entry will cause the setpoint to "snap" to the next temperature rather
   // than drift over the course of an interval. The name won't be displayed because the duration is 0,
   // but a NULL name will end the table, so use an empty string instead.
   // This will force the oven to move to the reflow temperature as quickly as possible.
-  { "", 0, 225.0},
-  // get to reflow then stay there for 30 seconds.
-  { "Reflow", 30000, 225.0 },
+  { "", 0, 225.0 },
+  // It's going to take around 60 seconds to get to peak, but then we're done.
+  { "Reflow", 60000, 225.0 },
   // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
-  // this on its own anyway.
-  { "Cool", 60000, AMBIENT_TEMP },
+  // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
+  // with cooling, then this entry will compensate for that.
+  { "Cool", 60000, 150.0 },
   // This entry ends the table. Don't leave it out!
   { NULL, 0, 0.0 }
 };
@@ -103,13 +110,41 @@ struct curve_point profile[] = {
 LiquidTWI2 display(LCD_I2C_ADDR,0,1);
 
 unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, button_press_time;
-
-//unsigned int error;
+unsigned int vcc_millis;
 
 double setPoint, currentTemp, outputDuty;
 
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
 
+// from http://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
+void readVcc() {
+  // Read 1.1V reference against AVcc
+  // set the reference to Vcc and the measurement to the internal 1.1V reference
+  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+    ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
+    ADMUX = _BV(MUX5) | _BV(MUX0);
+  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
+    ADMUX = _BV(MUX3) | _BV(MUX2);
+  #else
+    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  #endif  
+ 
+  delay(2); // Wait for Vref to settle
+  ADCSRA |= _BV(ADSC); // Start conversion
+  while (bit_is_set(ADCSRA,ADSC)); // measuring
+ 
+  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
+  uint8_t high = ADCH; // unlocks both
+ 
+  long result = (high<<8) | low;
+ 
+  result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
+  vcc_millis = result; // Vcc in millivolts
+}
+
+// Look for button events. We support "short" pushes and "long" pushes.
+// This method is responsible for debouncing and timing the pushes.
 unsigned int checkEvent() {
   unsigned long now = millis();
   if (button_debounce_time != 0) {
@@ -143,33 +178,35 @@ unsigned int checkEvent() {
   }
 }
 
+// Format and display a temperature value.
 void displayTemp(double temp) {
   if (temp < 10) display.print(" ");
   if (temp < 100) display.print(" ");
   display.print((int)temp);
   display.print(".");
   display.print(((int)(temp * 10.0)) % 10);
-  display.print((char)0xDF);
+  display.print((char)0xDF); // magic "degree" character
   display.print("C");
 }
 
+// Sample the temperature pin a few times and take an average.
+// Figure out the voltage, and then the temperature from that.
 void updateTemp() {
-  unsigned int val = analogRead(TEMP_SENSOR_PIN);
-  currentTemp = TEMP_SCALING_FACTOR * val;
+  unsigned long sum = 0, mv;
+  for(int i = 0; i < SAMPLE_COUNT; i++) {
+    analogRead(TEMP_SENSOR_PIN); // throw this one away
+    delay(10);
+    mv = analogRead(TEMP_SENSOR_PIN) * MV_PER_UNIT;
+    delay(10);
+    sum += mv;
+  }
+  mv = sum / SAMPLE_COUNT;
+  currentTemp = ((double)mv) / TEMP_SCALING_FACTOR;
 
 }
 
-/*
-void err(const char *msg) {
-  digitalWrite(ELEMENT_ONE_PIN, LOW);
-  digitalWrite(ELEMENT_TWO_PIN, LOW);
-  display.setBacklight(RED);
-  display.clear();
-  display.print(msg);
-  error = 1;
-}
-*/
-
+// Call this when the cycle is finished. Also, call it at
+// startup to initialize everything.
 void finish() {
   start_time = 0;
   pwm_time = 0;
@@ -181,31 +218,31 @@ void finish() {
   display.print("Waiting");
 }
 
-void computeSetPoint(unsigned long time) {
+// Which phase are we in now? (or -1 for finished)
+static int getCurrentPhase(unsigned long time) {
   unsigned long so_far = 0;
-  double last_temp = AMBIENT_TEMP;
   for(int i = 0; profile[i].phase_name != NULL; i++) {
     if (so_far + profile[i].duration_millis > time) { // we're in THIS portion of the profile
-      display.setCursor(0, 0);
-      display.print(profile[i].phase_name);
-      for(int j = 0; j < 8 - strlen(profile[i].phase_name); j++) display.print(" ");
-      unsigned long position_in_phase = time - so_far;
-      double fraction_of_phase = ((double)position_in_phase) / ((double) profile[i].duration_millis);
-      double delta = profile[i].target_temp - last_temp;
-      setPoint = delta * fraction_of_phase + last_temp;
-      return;
+      return i;
     }
     so_far += profile[i].duration_millis;
-    last_temp = profile[i].target_temp;
   }
-  // We fell off the end. We must be done.
-  finish();
+  return -1;
 }
-  
+
+// How many milliseconds into a cycle does the given phase number start?
+static unsigned long phaseStartTime(int phase) {
+  unsigned long so_far = 0;
+  for(int i = 0; i < phase; i++)
+    so_far += profile[i].duration_millis;
+  return so_far;
+}
+
 void setup() {
   display.setMCPType(LTI_TYPE_MCP23017);
   display.begin(16, 2);
   
+  analogReference(0);
   pinMode(ELEMENT_ONE_PIN, OUTPUT);
   pinMode(ELEMENT_TWO_PIN, OUTPUT);
   digitalWrite(ELEMENT_ONE_PIN, LOW);
@@ -216,7 +253,6 @@ void setup() {
   
   lastDisplayUpdate = 0;
   start_time = 0;
-  //error = 0;
   button_debounce_time = 0;
   button_press_time = 0;
 
@@ -229,27 +265,24 @@ void setup() {
   display.print(VERSION);
   
   delay(2000);
+  readVcc();
   finish();
 }
 
 void loop() {
   updateTemp();
+  boolean doDisplayUpdate = false;
   {
     unsigned long now = millis();
     if (lastDisplayUpdate == 0 || now - lastDisplayUpdate > DISPLAY_UPDATE_INTERVAL) {
+      doDisplayUpdate = true;
       lastDisplayUpdate = now;
       display.setCursor(0, 1);
       displayTemp(currentTemp);
     }
   }
-  /*
-  if (error) {
-    // XXX What to do?
-    return;
-  }
-  */
   if (start_time == 0) {
-    // wait for the button
+    // We're not running. Wait for the button.
     unsigned int event = checkEvent();
     switch(event) {
       case EVENT_SHORT_PUSH:
@@ -262,27 +295,47 @@ void loop() {
         // set the mode to MANUAL (which is otherwise
         // pointless because we don't call Compute() when
         // the oven isn't running).
+        readVcc();
         pid.SetMode(AUTOMATIC);
         start_time = millis();
-        break;
+        return;
     }
     
   } else {
+    // We're running.
     unsigned long now = millis();
     unsigned long profile_time = now - start_time;
-    unsigned int profile_sec = profile_time / 1000;
-    unsigned int profile_min = profile_sec / 60;
-    profile_sec %= 60;
-    display.setCursor(10, 0);
-    if (profile_min < 10) display.print("0");
-    display.print(profile_min);
-    display.print(":");
-    if (profile_sec < 10) display.print("0");
-    display.print(profile_sec);
+    int currentPhase = getCurrentPhase(profile_time);
+    if (currentPhase < 0) {
+      // All done!
+      finish();
+      return;
+    }
     
-    display.setCursor(8, 1);
-    displayTemp(setPoint);
+    if (doDisplayUpdate) {
+      // more display updates to do.
+        
+      // The time
+      unsigned long profile_time = now - start_time;
+      unsigned int profile_sec = profile_time / 1000;
+      unsigned int profile_min = profile_sec / 60;
+      profile_sec %= 60;
+      display.setCursor(10, 0);
+      if (profile_min < 10) display.print("0");
+      display.print(profile_min);
+      display.print(":");
+      if (profile_sec < 10) display.print("0");
+      display.print(profile_sec);
     
+      // The phase name    
+      display.setCursor(0, 0);
+      display.print(profile[currentPhase].phase_name);
+      for(unsigned int j = 0; j < 8 - strlen(profile[currentPhase].phase_name); j++) display.print(" ");
+        
+      // the setpoint
+      display.setCursor(8, 1);
+      displayTemp(setPoint);
+    }
     // The concept here is that we have two heating elements
     // that we can independently control.
     //
@@ -297,18 +350,34 @@ void loop() {
     // So start one of them (#2) at the beginning of the interval, and end the other (#1)
     // at the end of the interval.
     if (pwm_time == 0 || now - pwm_time > PWM_PULSE_WIDTH) {
+      // Time to start a new PWM interval.
       pwm_time = now;
+      // Turn element one off. We may turn it on later.
       digitalWrite(ELEMENT_ONE_PIN, LOW);
       // Only start element two if we're actually going to do *anything*
+      // We will turn it off later.
       digitalWrite(ELEMENT_TWO_PIN, (outputDuty > 0.0)?HIGH:LOW);
     } else {
+      // We're somewhere in the middle of the current interval.
       unsigned long place_in_pulse = now - pwm_time;
-      if (place_in_pulse > outputDuty)
+      if (place_in_pulse >= outputDuty)
         digitalWrite(ELEMENT_TWO_PIN, LOW); // their pulse is over - turn the juice off
-      if (place_in_pulse > (PWM_PULSE_WIDTH - outputDuty))
+      if (place_in_pulse >= (PWM_PULSE_WIDTH - outputDuty))
         digitalWrite(ELEMENT_ONE_PIN, HIGH); // their pulse is ready to begin - turn the juice on
     }
-    computeSetPoint(profile_time);
+    
+    // Now update the set point.
+    // What was the last target temp? That's where we're coming *from* in this phase
+    double last_temp = (currentPhase == 0)?AMBIENT_TEMP:profile[currentPhase - 1].target_temp;
+    // Where are we in this phase?
+    unsigned long position_in_phase = profile_time - phaseStartTime(currentPhase);
+    // What fraction of the current phase is that?
+    double fraction_of_phase = ((double)position_in_phase) / ((double) profile[currentPhase].duration_millis);
+    // How much is the temperature going to change during this phase?
+    double temp_delta = profile[currentPhase].target_temp - last_temp;
+    // The set point is the fraction of the delta that's the same as the fraction of the complete phase.
+    setPoint = temp_delta * fraction_of_phase + last_temp;
+
     pid.Compute();   
   }
 }
