@@ -16,5 +16,3 @@ This project requires the following libraries:
 
 It also will require some sort of Arduino IDE support for ATTiny controllers. I used the MIT patch at
 http://hlt.media.mit.edu/?p=1695
-
-Version 0.2 still lacks proper values for Kp, Ki and Kd. So it's not ready for prime time quite yet.
