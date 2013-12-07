@@ -25,7 +25,7 @@
 
 #define LCD_I2C_ADDR 0x20 // for adafruit shield or backpack
 
-// This is the AD595 reading analog pin.
+// This is the temperature reading analog pin.
 #define TEMP_SENSOR_PIN A3
 
 // These pins turn on the two heating elements.
@@ -38,9 +38,9 @@
 
 // This value is mV per degree C
 // The spec sheet for the AD595 says the output is 10 mV per degree C.
-#define TEMP_SCALING_FACTOR 10
+// #define TEMP_SCALING_FACTOR 10
 // If you're using an AD8495, then that chip has a spec of 5 mV per degree C.
-// #define TEMP_SCALING_FACTOR 5
+#define TEMP_SCALING_FACTOR 5
 
 // How often do we update the displayed temp?
 #define DISPLAY_UPDATE_INTERVAL 500
@@ -49,9 +49,9 @@
 #define AMBIENT_TEMP 25.0
 
 // fiddle these knobs
-#define K_P 50
-#define K_I 10
-#define K_D 0
+#define K_P 150
+#define K_I 0.05
+#define K_D 10
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
@@ -72,7 +72,7 @@
 #define EVENT_SHORT_PUSH 1
 #define EVENT_LONG_PUSH 2
 
-#define VERSION "0.3"
+#define VERSION "0.4"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
@@ -107,7 +107,7 @@ const struct curve_point profile[] = {
   { NULL, 0, 0.0 }
 };
 
-LiquidTWI2 display(LCD_I2C_ADDR,0,1);
+LiquidTWI2 display(LCD_I2C_ADDR, 0);
 
 unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, button_press_time;
 unsigned int vcc_millis;
