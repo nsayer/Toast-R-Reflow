@@ -16,3 +16,24 @@ This project requires the following libraries:
 
 It also will require some sort of Arduino IDE support for ATTiny controllers. I used the MIT patch at
 http://hlt.media.mit.edu/?p=1695
+
+Note that as of version 0.5, this code tickles a bug in Arduino that you need to work around.
+
+You need to find the file hardware/arduino/cores/arduino/wiring_analog.c and apply this patch:
+
+```
+--- wiring_analog.c.orig	2013-12-12 12:44:11.000000000 -0800
++++ wiring_analog.c	2013-12-12 12:16:16.000000000 -0800
+@@ -66,7 +66,7 @@
+ 	// channel (low 4 bits).  this also sets ADLAR (left-adjust result)
+ 	// to 0 (the default).
+ #if defined(ADMUX)
+-	ADMUX = (analog_reference << 6) | (pin & 0x07);
++	ADMUX = (analog_reference << 6) | (pin & 0x07) | ((analog_reference & 0x4)?0x10:0);
+ #endif
+ 
+ 	// without a delay, we seem to read from the wrong channel
+```
+
+That will allow analogReference() to set the correct ADMUX bits when the value is greater than 4, which is
+what turns on the 2.56 volt reference.
