@@ -23,6 +23,13 @@
 #include <LiquidTWI2.h>
 #include <PID_v1.h>
 
+// This is the analogReference value for the ATTiny 2.56v internal
+// reference, with no external cap bypass.
+//
+// Note that for this to work, you need to patch wiring_analog.c to set
+// the REFS2 bit in ADMUX when bit 2 is set.
+#define INTERNAL2V56_NO_CAP 6
+
 #define LCD_I2C_ADDR 0x20 // for adafruit shield or backpack
 
 // This is the temperature reading analog pin.
@@ -32,15 +39,13 @@
 #define ELEMENT_ONE_PIN 1
 #define ELEMENT_TWO_PIN 4
 
-// This is the conversaion factor for the A/D converter
-// It's the number of millivolts per unit from analogRead()
-#define MV_PER_UNIT (vcc_millis/1024)
-
-// This value is mV per degree C
-// The spec sheet for the AD595 says the output is 10 mV per degree C.
-// #define TEMP_SCALING_FACTOR 10
-// If you're using an AD8495, then that chip has a spec of 5 mV per degree C.
-#define TEMP_SCALING_FACTOR 5
+// This value is A/D units per degree C
+//
+// The magic here is that with a 2.56 volt analog reference,
+// the mV per units is *exactly* 2.5. Since the AD8495 output is
+// 5 mV per degree, then we just need to divide the reading by 2
+// to get the temp.
+#define TEMP_SCALING_FACTOR 2.0
 
 // How often do we update the displayed temp?
 #define DISPLAY_UPDATE_INTERVAL 500
@@ -59,7 +64,7 @@
 
 // To get a temperature reading, read it a bunch of times and take the average.
 // This will cut down on the noise.
-#define SAMPLE_COUNT 1
+#define SAMPLE_COUNT 3
 
 // Which button do we use?
 #define BUTTON BUTTON_SELECT
@@ -72,7 +77,7 @@
 #define EVENT_SHORT_PUSH 1
 #define EVENT_LONG_PUSH 2
 
-#define VERSION "0.4"
+#define VERSION "0.5"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
@@ -98,7 +103,7 @@ const struct curve_point profile[] = {
   // This will force the oven to move to the reflow temperature as quickly as possible.
   { "", 0, 225.0 },
   // It's going to take around 60 seconds to get to peak, but then we're done.
-  { "Reflow", 60000, 225.0 },
+  { "Reflow", 75000, 225.0 },
   // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
   // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
   // with cooling, then this entry will compensate for that.
@@ -115,33 +120,6 @@ unsigned int vcc_millis;
 double setPoint, currentTemp, outputDuty;
 
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
-
-// from http://provideyourown.com/2012/secret-arduino-voltmeter-measure-battery-voltage/
-void readVcc() {
-  // Read 1.1V reference against AVcc
-  // set the reference to Vcc and the measurement to the internal 1.1V reference
-  #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-    ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
-    ADMUX = _BV(MUX5) | _BV(MUX0);
-  #elif defined (__AVR_ATtiny25__) || defined(__AVR_ATtiny45__) || defined(__AVR_ATtiny85__)
-    ADMUX = _BV(MUX3) | _BV(MUX2);
-  #else
-    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
-  #endif  
- 
-  delay(2); // Wait for Vref to settle
-  ADCSRA |= _BV(ADSC); // Start conversion
-  while (bit_is_set(ADCSRA,ADSC)); // measuring
- 
-  uint8_t low  = ADCL; // must read ADCL first - it then locks ADCH  
-  uint8_t high = ADCH; // unlocks both
- 
-  long result = (high<<8) | low;
- 
-  result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
-  vcc_millis = result; // Vcc in millivolts
-}
 
 // Look for button events. We support "short" pushes and "long" pushes.
 // This method is responsible for debouncing and timing the pushes.
@@ -193,16 +171,14 @@ void displayTemp(double temp) {
 // Figure out the voltage, and then the temperature from that.
 void updateTemp() {
   unsigned long sum = 0, mv;
+  analogRead(TEMP_SENSOR_PIN); // throw this one away
   for(int i = 0; i < SAMPLE_COUNT; i++) {
-    analogRead(TEMP_SENSOR_PIN); // throw this one away
     delay(10);
-    mv = analogRead(TEMP_SENSOR_PIN) * MV_PER_UNIT;
-    delay(10);
+    mv = analogRead(TEMP_SENSOR_PIN);
     sum += mv;
   }
   mv = sum / SAMPLE_COUNT;
   currentTemp = ((double)mv) / TEMP_SCALING_FACTOR;
-
 }
 
 // Call this when the cycle is finished. Also, call it at
@@ -242,7 +218,7 @@ void setup() {
   display.setMCPType(LTI_TYPE_MCP23017);
   display.begin(16, 2);
   
-  analogReference(0);
+  analogReference(INTERNAL2V56_NO_CAP);
   pinMode(ELEMENT_ONE_PIN, OUTPUT);
   pinMode(ELEMENT_TWO_PIN, OUTPUT);
   digitalWrite(ELEMENT_ONE_PIN, LOW);
@@ -265,7 +241,6 @@ void setup() {
   display.print(VERSION);
   
   delay(2000);
-  readVcc();
   finish();
 }
 
@@ -295,7 +270,6 @@ void loop() {
         // set the mode to MANUAL (which is otherwise
         // pointless because we don't call Compute() when
         // the oven isn't running).
-        readVcc();
         pid.SetMode(AUTOMATIC);
         start_time = millis();
         return;
