@@ -55,7 +55,7 @@
 
 // fiddle these knobs
 #define K_P 150
-#define K_I 0.05
+#define K_I 0.1
 #define K_D 10
 
 // The number of milliseconds for each cycle of the control output.
@@ -115,7 +115,7 @@ const struct curve_point profile[] = {
 LiquidTWI2 display(LCD_I2C_ADDR, 0);
 
 unsigned long start_time, pwm_time, lastDisplayUpdate, button_debounce_time, button_press_time;
-unsigned int vcc_millis;
+unsigned int display_mode;
 
 double setPoint, currentTemp, outputDuty;
 
@@ -158,13 +158,13 @@ unsigned int checkEvent() {
 
 // Format and display a temperature value.
 void displayTemp(double temp) {
-  if (temp < 10) display.print(" ");
-  if (temp < 100) display.print(" ");
+  if (temp < 10) display.print(' ');
+  if (temp < 100) display.print(' ');
   display.print((int)temp);
-  display.print(".");
+  display.print('.');
   display.print(((int)(temp * 10.0)) % 10);
   display.print((char)0xDF); // magic "degree" character
-  display.print("C");
+  display.print('C');
 }
 
 // Sample the temperature pin a few times and take an average.
@@ -231,6 +231,7 @@ void setup() {
   start_time = 0;
   button_debounce_time = 0;
   button_press_time = 0;
+  display_mode = 0;
 
   display.clear();
   display.setBacklight(WHITE);
@@ -286,6 +287,13 @@ void loop() {
       return;
     }
     
+    unsigned int event = checkEvent();
+    switch(event) {
+      case EVENT_SHORT_PUSH:
+      case EVENT_LONG_PUSH:
+        display_mode ^= 1; // pick the other mode
+        break;
+    }
     if (doDisplayUpdate) {
       // more display updates to do.
         
@@ -295,20 +303,35 @@ void loop() {
       unsigned int profile_min = profile_sec / 60;
       profile_sec %= 60;
       display.setCursor(10, 0);
-      if (profile_min < 10) display.print("0");
+      if (profile_min < 10) display.print('0');
       display.print(profile_min);
-      display.print(":");
-      if (profile_sec < 10) display.print("0");
+      display.print(':');
+      if (profile_sec < 10) display.print('0');
       display.print(profile_sec);
     
       // The phase name    
       display.setCursor(0, 0);
       display.print(profile[currentPhase].phase_name);
-      for(unsigned int j = 0; j < 8 - strlen(profile[currentPhase].phase_name); j++) display.print(" ");
+      for(unsigned int j = 0; j < 8 - strlen(profile[currentPhase].phase_name); j++) display.print(' ');
         
-      // the setpoint
       display.setCursor(8, 1);
-      displayTemp(setPoint);
+      switch(display_mode) {
+        case 0:
+          // the setpoint
+          displayTemp(setPoint);
+          break;
+        case 1:
+          // the oven power
+          int mils = (outputDuty * 1000) / PWM_PULSE_WIDTH;
+          if (mils < 1000) display.print(' ');
+          display.print(mils / 10);
+          display.print('.');
+          display.print(mils % 10);
+          display.print('%');
+          display.print(' ');
+          display.print(' ');
+          break;
+      }
     }
     // The concept here is that we have two heating elements
     // that we can independently control.
