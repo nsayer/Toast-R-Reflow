@@ -26,6 +26,10 @@ board, which is hardware versions > 1.0
 
 */
 
+// Versions 1.2 and beyond include an external reference voltage. For versions 1.0 and 1.1
+// comment out this line
+#define EXTERNAL_REF
+
 #include <LiquidCrystal.h>
 #include <PID_v1.h>
 
@@ -35,11 +39,20 @@ board, which is hardware versions > 1.0
 #define LCD_D6 5
 #define LCD_D7 4
 #define LCD_RS 3
+#ifdef EXTERNAL_REF
+#define LCD_E 2
+#define LCD_RW 255 // This tells LiquidCrystal that there is no RW connection
+#else
 #define LCD_RW 2
 #define LCD_E 1
+#endif
 
 // This is the temperature reading analog pin.
+#ifdef EXTERNAL_REF
+#define TEMP_SENSOR_PIN A1
+#else
 #define TEMP_SENSOR_PIN A0
+#endif
 
 // These pins turn on the two heating elements.
 #define ELEMENT_ONE_PIN 9
@@ -48,13 +61,16 @@ board, which is hardware versions > 1.0
 // This is the pin with the button.
 #define BUTTON_SELECT 10
 
-// This value is A/D units per degree C
+// This value is the full-scale temperature. It's the reference voltage
+// divided by the 5 mV/degC scaling of the AD849x.
 //
-// We don't get a 2.56V reference with the ATTiny84. The 1.1 volt AREF only gets us up to
-// 220 degrees C, so we have to use 5 volts.
-//
-// So 5 volts is 1000 degrees C, and that represents a count of 1024. Therefore...
-#define TEMP_SCALING_FACTOR 1.024
+#ifdef EXTERNAL_REF
+// 1.8 volts is 360 degrees C
+#define FULL_SCALE_TEMP 360.0
+#else
+// 5 volts is 1000 degrees C
+#define FULL_SCALE_TEMP 1000.0
+#endif
 
 // How often do we update the displayed temp?
 #define DISPLAY_UPDATE_INTERVAL 500
@@ -90,7 +106,7 @@ board, which is hardware versions > 1.0
 // to look up in your display's datasheet. You might try 0xD4 as a second choice.
 #define DEGREE_CHAR (0xDF)
 
-#define VERSION "(84) 0.1"
+#define VERSION "(84) 0.2"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
@@ -191,7 +207,7 @@ void updateTemp() {
     sum += mv;
   }
   mv = sum / SAMPLE_COUNT;
-  currentTemp = ((double)mv) / TEMP_SCALING_FACTOR;
+  currentTemp = ((double)mv) * (FULL_SCALE_TEMP / 1024.0);
 }
 
 // Call this when the cycle is finished. Also, call it at
@@ -228,8 +244,11 @@ static unsigned long phaseStartTime(int phase) {
 
 void setup() {
   display.begin(16, 2);
-  
-  analogReference(0); // Vcc
+#ifdef EXTERNAL_REF
+  analogReference(EXTERNAL);
+#else
+  analogReference(DEFAULT); // Vcc
+#endif
   pinMode(ELEMENT_ONE_PIN, OUTPUT);
   pinMode(ELEMENT_TWO_PIN, OUTPUT);
   digitalWrite(ELEMENT_ONE_PIN, LOW);
