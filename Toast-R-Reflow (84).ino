@@ -30,6 +30,7 @@ board, which is hardware versions > 1.0
 // comment out this line
 #define EXTERNAL_REF
 
+#include <avr/pgmspace.h>
 #include <LiquidCrystal.h>
 #include <PID_v1.h>
 
@@ -79,9 +80,9 @@ board, which is hardware versions > 1.0
 #define AMBIENT_TEMP 25.0
 
 // fiddle these knobs
-#define K_P 150
+#define K_P 500
 #define K_I 0.1
-#define K_D 10
+#define K_D 5
 
 // The number of milliseconds for each cycle of the control output.
 // The duty cycle is adjusted by the PID.
@@ -106,11 +107,19 @@ board, which is hardware versions > 1.0
 // to look up in your display's datasheet. You might try 0xD4 as a second choice.
 #define DEGREE_CHAR (0xDF)
 
-#define VERSION "(84) 0.2"
+#define VERSION "(84) 0.3"
+
+char p_buffer[17]; // enough for one line on the LCD.
+#define _P(str) (strcpy_P(p_buffer, PSTR(str)), p_buffer)
+
+// missing from the Arduino IDE
+#ifndef pgm_read_ptr
+#define pgm_read_ptr(p) ((prog_void*)pgm_read_word(p))
+#endif
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
-  const char *phase_name;
+  prog_char *phase_name;
   // The duration of this phase, in milliseconds
   unsigned long duration_millis;
   // The setpoint will drift smoothly across the phase from the last
@@ -121,25 +130,41 @@ struct curve_point {
 // This table is the complete operational profile of the oven.
 // This example is intended for tin-lead based paste. For RoHS
 // solder, you'll need to adjust it.
-const struct curve_point profile[] = {
-  // Drift from the ambient temperature to 150 deg C over 90 seconds.
-  { "Preheat", 90000, 150.0 },
-  // Drift more slowly up to 180 deg C over 60 seconds.
-  { "Soak", 60000, 180.0 },
-  // This entry will cause the setpoint to "snap" to the next temperature rather
-  // than drift over the course of an interval. The name won't be displayed because the duration is 0,
-  // but a NULL name will end the table, so use an empty string instead.
-  // This will force the oven to move to the reflow temperature as quickly as possible.
-  { "", 0, 225.0 },
-  // It's going to take around 60 seconds to get to peak, but then we're done.
-  { "Reflow", 75000, 225.0 },
-  // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
-  // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
-  // with cooling, then this entry will compensate for that.
-  { "Cool", 60000, 150.0 },
-  // This entry ends the table. Don't leave it out!
-  { NULL, 0, 0.0 }
-};
+
+// In order to put the operating profile into PROGMEM, we have to "unroll" the entire thing
+// so that we can insure that each separate piece makes it into PROGMEM. First, all of the
+// curve point name strings.
+
+char PH_txt[] PROGMEM = "Preheat";
+char SK_txt[] PROGMEM = "Soak";
+char N_txt[] PROGMEM = "";
+char RF_txt[] PROGMEM = "Reflow";
+char CL_txt[] PROGMEM = "Cool";
+
+// Next, each curve point, which represents a section of time where the oven will
+// transition from the previous point to the next. It's defined as how much time we
+// will spend, and what the target will be at the end of that time.
+
+// Drift from the ambient temperature to 150 deg C over 90 seconds.
+struct curve_point PT_1 PROGMEM = { PH_txt, 90000, 150.0 };
+// Drift more slowly up to 180 deg C over 60 seconds.
+struct curve_point PT_2 PROGMEM = { SK_txt, 60000, 180.0 };
+// This entry will cause the setpoint to "snap" to the next temperature rather
+// than drift over the course of an interval. The name won't be displayed because the duration is 0,
+// but a NULL name will end the table, so use an empty string instead.
+// This will force the oven to move to the reflow temperature as quickly as possible.
+struct curve_point PT_3 PROGMEM = { N_txt, 0, 230.0 };
+// It's going to take around 80 seconds to get to peak. Hang out there a bit.
+struct curve_point PT_4 PROGMEM = { RF_txt, 90000, 230.0 };
+// There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
+// this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
+// with cooling, then this entry will compensate for that.
+struct curve_point PT_5 PROGMEM = { CL_txt, 90000, 100.0 };
+// This entry ends the table. Don't leave it out!
+struct curve_point PT_6 PROGMEM = { NULL, 0, 0.0 };
+
+// Now the actual table itself.
+prog_void* profile[] PROGMEM = { &PT_1, &PT_2, &PT_3, &PT_4, &PT_5, &PT_6 };
 
 LiquidCrystal display(LCD_RS, LCD_RW, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
@@ -219,17 +244,20 @@ void finish() {
   digitalWrite(ELEMENT_ONE_PIN, LOW);
   digitalWrite(ELEMENT_TWO_PIN, LOW);
   display.clear();
-  display.print("Waiting");
+  display.print(_P("Waiting"));
 }
 
 // Which phase are we in now? (or -1 for finished)
 static int getCurrentPhase(unsigned long time) {
   unsigned long so_far = 0;
-  for(int i = 0; profile[i].phase_name != NULL; i++) {
-    if (so_far + profile[i].duration_millis > time) { // we're in THIS portion of the profile
+  for(int i = 0; true; i++) {
+    struct curve_point this_point;
+    memcpy_P(&this_point, pgm_read_ptr(profile + i), sizeof(struct curve_point));
+    if (this_point.phase_name == NULL) break;
+    if (so_far + this_point.duration_millis > time) { // we're in THIS portion of the profile
       return i;
     }
-    so_far += profile[i].duration_millis;
+    so_far += this_point.duration_millis;
   }
   return -1;
 }
@@ -237,8 +265,11 @@ static int getCurrentPhase(unsigned long time) {
 // How many milliseconds into a cycle does the given phase number start?
 static unsigned long phaseStartTime(int phase) {
   unsigned long so_far = 0;
-  for(int i = 0; i < phase; i++)
-    so_far += profile[i].duration_millis;
+  for(int i = 0; i < phase; i++) {
+    struct curve_point this_point;
+    memcpy_P(&this_point, pgm_read_ptr(profile + i), sizeof(struct curve_point));
+    so_far += this_point.duration_millis;
+  }
   return so_far;
 }
 
@@ -268,9 +299,9 @@ void setup() {
   display.clear();
   
   display.setCursor(0,0);
-  display.print("Toast-R-Reflow");
+  display.print(_P("Toast-R-Reflow"));
   display.setCursor(0, 1);
-  display.print(VERSION);
+  display.print(_P(VERSION));
   
   delay(2000);
   finish();
@@ -316,6 +347,8 @@ void loop() {
       finish();
       return;
     }
+    struct curve_point this_point;
+    memcpy_P(&this_point, pgm_read_ptr(profile + currentPhase), sizeof(struct curve_point));
     
     unsigned int event = checkEvent();
     switch(event) {
@@ -324,6 +357,7 @@ void loop() {
         display_mode ^= 1; // pick the other mode
         break;
     }
+
     if (doDisplayUpdate) {
       // more display updates to do.
         
@@ -341,8 +375,10 @@ void loop() {
     
       // The phase name    
       display.setCursor(0, 0);
-      display.print(profile[currentPhase].phase_name);
-      for(unsigned int j = 0; j < 8 - strlen(profile[currentPhase].phase_name); j++) display.print(' ');
+      // This is just like the macro, but the string isn't a local constant
+      strcpy_P(p_buffer, this_point.phase_name);
+      display.print(p_buffer);
+      for(unsigned int j = 0; j < 8 - strlen(p_buffer); j++) display.print(' ');
         
       display.setCursor(8, 1);
       switch(display_mode) {
@@ -396,13 +432,19 @@ void loop() {
     
     // Now update the set point.
     // What was the last target temp? That's where we're coming *from* in this phase
-    double last_temp = (currentPhase == 0)?AMBIENT_TEMP:profile[currentPhase - 1].target_temp;
+    double last_temp;
+    {
+      struct curve_point last_point;
+      if (currentPhase != 0)
+        memcpy_P(&last_point, pgm_read_ptr(profile + currentPhase - 1), sizeof(struct curve_point));
+      last_temp = (currentPhase == 0)?AMBIENT_TEMP:last_point.target_temp;
+    }
     // Where are we in this phase?
     unsigned long position_in_phase = profile_time - phaseStartTime(currentPhase);
     // What fraction of the current phase is that?
-    double fraction_of_phase = ((double)position_in_phase) / ((double) profile[currentPhase].duration_millis);
+    double fraction_of_phase = ((double)position_in_phase) / ((double) this_point.duration_millis);
     // How much is the temperature going to change during this phase?
-    double temp_delta = profile[currentPhase].target_temp - last_temp;
+    double temp_delta = this_point.target_temp - last_temp;
     // The set point is the fraction of the delta that's the same as the fraction of the complete phase.
     setPoint = temp_delta * fraction_of_phase + last_temp;
 
