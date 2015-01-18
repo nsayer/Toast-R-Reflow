@@ -98,7 +98,7 @@ board, which is model II.
 char p_buffer[17];
 #define P(str) (strncpy_P(p_buffer, PSTR(str), sizeof(p_buffer)), p_buffer)
 
-#define VERSION "(II) 1.0"
+#define VERSION "(II) 1.1"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
@@ -128,6 +128,9 @@ char name_a_txt[] PROGMEM = "SnPb";
 // transition from the previous point to the next. It's defined as how much time we
 // will spend, and what the target will be at the end of that time.
 
+// This special entry ends a profile. Always add it to the end!
+struct curve_point PT_END PROGMEM = { NULL, 0, 0.0 };
+
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
 struct curve_point PT_A_1 PROGMEM = { PH_txt, 90000, 150.0 };
 // Drift more slowly up to 180 deg C over 60 seconds.
@@ -143,11 +146,9 @@ struct curve_point PT_A_4 PROGMEM = { RF_txt, 90000, 230.0 };
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
 struct curve_point PT_A_5 PROGMEM = { CL_txt, 90000, 100.0 };
-// This entry ends the table. Don't leave it out!
-struct curve_point PT_A_6 PROGMEM = { NULL, 0, 0.0 };
 
 // Now the actual table itself.
-void* profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT_A_5, &PT_A_6 };
+void* profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT_A_5, &PT_END };
 
 char name_b_txt[] PROGMEM = "RoHS";
 
@@ -166,14 +167,21 @@ struct curve_point PT_B_4 PROGMEM = { RF_txt, 90000, 250.0 };
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
 struct curve_point PT_B_5 PROGMEM = { CL_txt, 90000, 100.0 };
-// This entry ends the table. Don't leave it out!
-struct curve_point PT_B_6 PROGMEM = { NULL, 0, 0.0 };
 
-void* profile_b[] PROGMEM = { &PT_B_1, &PT_B_2, &PT_B_3, &PT_B_4, &PT_B_5, &PT_B_6 };
+void* profile_b[] PROGMEM = { &PT_B_1, &PT_B_2, &PT_B_3, &PT_B_4, &PT_B_5, &PT_END };
 
-#define PROFILE_COUNT 2
-void* profiles[] PROGMEM = { profile_a, profile_b };
-void* profile_names[] PROGMEM = { name_a_txt, name_b_txt };
+char name_c_txt[] PROGMEM = "Bake";
+
+// Drift from ambient to 125 deg C over an hour
+struct curve_point PT_C_1 PROGMEM = { PH_txt, 3600000, 125.0 };
+// Stay there for 10 more hours
+struct curve_point PT_C_2 PROGMEM = { name_c_txt, 36000000, 125.0 };
+
+void *profile_c[] PROGMEM = { &PT_C_1, &PT_C_2, &PT_END };
+
+#define PROFILE_COUNT 3
+void* profiles[] PROGMEM = { profile_a, profile_b, profile_c };
+void* profile_names[] PROGMEM = { name_a_txt, name_b_txt, name_c_txt };
 
 // missing from the Arduino IDE
 #ifndef pgm_read_ptr
@@ -195,7 +203,7 @@ PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
 
 // Look for button events. We support "short" pushes and "long" pushes.
 // This method is responsible for debouncing and timing the pushes.
-unsigned int checkEvent() {
+static unsigned int checkEvent() {
   unsigned long now = millis();
   if (button_debounce_time != 0) {
     if (now - button_debounce_time < BUTTON_DEBOUNCE_INTERVAL) {
@@ -229,18 +237,13 @@ unsigned int checkEvent() {
 }
 
 // Format and display a temperature value.
-void displayTemp(double temp) {
-  if (temp < 10) display.print(' ');
-  if (temp < 100) display.print(' ');
-  display.print((int)temp);
-  display.print('.');
-  display.print(((int)(temp * 10.0)) % 10);
-  display.print((char)DEGREE_CHAR);
-  display.print('C');
+static inline void displayTemp(double temp) {
+  int deg = (int)(temp * 10);
+  sprintf(p_buffer, "%3d.%1d%cC", deg / 10, deg % 10, DEGREE_CHAR);
+  display.print(p_buffer);
 }
 
-void updateTemp() {
-
+static inline void updateTemp() {
   // The DO and CLK pins are shared with the LCD, so we have to... rewire them.
   pinMode(TEMP_DO, INPUT);
   pinMode(TEMP_CLK, OUTPUT);
@@ -302,12 +305,12 @@ void finish(boolean silent = false) {
   display.print(p_buffer);
 }
 
-static void* currentProfile() {
+static inline void* currentProfile() {
   return pgm_read_ptr(((uint16_t)profiles) + SIZE_OF_PROG_POINTER * active_profile);
 }
 
 // Which phase are we in now? (or -1 for finished)
-static int getCurrentPhase(unsigned long time) {
+static inline int getCurrentPhase(unsigned long time) {
   unsigned long so_far = 0;
   for(int i = 0; true; i++) {
     struct curve_point this_point;
@@ -322,7 +325,7 @@ static int getCurrentPhase(unsigned long time) {
 }
 
 // How many milliseconds into a cycle does the given phase number start?
-static unsigned long phaseStartTime(int phase) {
+static inline unsigned long phaseStartTime(int phase) {
   unsigned long so_far = 0;
   for(int i = 0; i < phase; i++) {
     struct curve_point this_point;
@@ -437,7 +440,7 @@ void loop() {
     switch(event) {
       case EVENT_LONG_PUSH:
         finish();
-        break;
+        return;
       case EVENT_SHORT_PUSH:
         display_mode ^= 1; // pick the other mode
         break;
@@ -448,7 +451,7 @@ void loop() {
         Serial.print("Wait ");
       else {
         int sec = (int)((now - start_time) / 1000);
-        sprintf(p_buffer, "%02d:%02d ", sec/60, sec % 60);
+        sprintf(p_buffer, "%02d:%02d:%02d ", sec / 3600, (sec/60) % 60, sec % 60);
         Serial.print(p_buffer);
       }
       sprintf(p_buffer, "%1.2f", currentTemp);
@@ -465,16 +468,11 @@ void loop() {
       // more display updates to do.
         
       // The time
+      display.setCursor(8, 0);
       unsigned long profile_time = now - start_time;
-      unsigned int profile_sec = profile_time / 1000;
-      unsigned int profile_min = profile_sec / 60;
-      profile_sec %= 60;
-      display.setCursor(10, 0);
-      if (profile_min < 10) display.print('0');
-      display.print(profile_min);
-      display.print(':');
-      if (profile_sec < 10) display.print('0');
-      display.print(profile_sec);
+      unsigned int sec = profile_time / 1000;
+      sprintf(p_buffer, "%02d:%02d:%02d ", sec / 3600, (sec/60) % 60, sec % 60);
+      display.print(p_buffer);
     
       // The phase name    
       display.setCursor(0, 0);
@@ -491,14 +489,8 @@ void loop() {
         case 1:
           // the oven power
           int mils = (outputDuty * 1000) / PWM_PULSE_WIDTH;
-          if (mils < 1000) display.print(' ');
-          if (mils < 100) display.print(' ');
-          display.print(mils / 10);
-          display.print('.');
-          display.print(mils % 10);
-          display.print('%');
-          display.print(' ');
-          display.print(' ');
+          sprintf(p_buffer, "%3d.%1d%%  ", mils / 10, mils % 10);
+          display.print(p_buffer);
           break;
       }
     }
