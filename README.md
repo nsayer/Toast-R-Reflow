@@ -57,3 +57,26 @@ This version requires:
 * LiquidCrystal (built-in)
 
 This version also requires ATTiny support, but does not require the patch to wiring_analog.c.
+
+Model II VERSION
+================
+
+This version has the same library requirements as the ATTiny84 version, but does not require ATTiny support. Instead,
+it requires a patch to boards.txt to add support for "raw" ATMega328P chips without the Arduino bootloader and
+programming using an AVR ISP programmer.
+
+Here's a suitable addition:
+
+```
+##############################################################
+
+usbtiny328.name=[usbtinyisp]ATmega328
+
+usbtiny328.upload.using=usbtinyisp
+usbtiny328.upload.maximum_size=32768
+
+usbtiny328.build.mcu=atmega328p
+usbtiny328.build.f_cpu=16000000L
+usbtiny328.build.core=arduino
+usbtiny328.build.variant=standard
+```
