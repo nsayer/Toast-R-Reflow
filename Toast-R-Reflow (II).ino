@@ -236,10 +236,14 @@ static unsigned int checkEvent() {
   }
 }
 
-// Format and display a temperature value.
-static inline void displayTemp(double temp) {
+static inline void formatTemp(double temp) {
   int deg = (int)(temp * 10);
   sprintf(p_buffer, "%3d.%1d%cC", deg / 10, deg % 10, DEGREE_CHAR);
+}
+
+// Format and display a temperature value.
+static inline void displayTemp(double temp) {
+  formatTemp(temp);
   display.print(p_buffer);
 }
 
@@ -454,12 +458,12 @@ void loop() {
         sprintf(p_buffer, "%02d:%02d:%02d ", sec / 3600, (sec/60) % 60, sec % 60);
         Serial.print(p_buffer);
       }
-      sprintf(p_buffer, "%1.2f", currentTemp);
+      formatTemp(currentTemp);
       Serial.print(p_buffer);
       if (start_time == 0)
         Serial.print("\r\n");
       else {
-        sprintf(p_buffer, " %1.2f ", setPoint);
+        formatTemp(setPoint);
         Serial.print(p_buffer);
         Serial.print("\r\n");
       }
