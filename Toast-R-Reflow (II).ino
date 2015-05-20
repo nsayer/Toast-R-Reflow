@@ -26,6 +26,8 @@ board, which is model II.
 
 */
 
+#include <avr/progmem.h>
+#include <avr/wdt.h>
 #include <LiquidCrystal.h>
 #include <PID_v1.h>
 
@@ -98,7 +100,7 @@ board, which is model II.
 char p_buffer[17];
 #define P(str) (strncpy_P(p_buffer, PSTR(str), sizeof(p_buffer)), p_buffer)
 
-#define VERSION "(II) 1.1"
+#define VERSION "(II) 1.2"
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
@@ -340,6 +342,10 @@ static inline unsigned long phaseStartTime(int phase) {
 }
 
 void setup() {
+  // This must be done as early as possible to prevent the watchdog from biting during reset.
+  MCUSR = 0;
+  wdt_disable();
+  
   Serial.begin(SERIAL_BAUD);
   display.begin(16, 2);
   pinMode(ELEMENT_ONE_PIN, OUTPUT);
@@ -371,10 +377,12 @@ void setup() {
   display.print(P(VERSION));
   
   delay(2000);
+  wdt_enable(WDTO_500MS);
   finish();
 }
 
 void loop() {
+  wdt_reset();
   updateTemp();
   if (fault) {
     if (!faulted) {
@@ -390,7 +398,12 @@ void loop() {
     }
     return;
   } else {
+    if (faulted) {
+      // If the fault just went away, clean up the display
+      finish();
+    }
     faulted = false;
+    // and carry on...
   }
   boolean doDisplayUpdate = false;
   {
