@@ -31,6 +31,7 @@ board, which is hardware versions > 1.0
 #define EXTERNAL_REF
 
 #include <avr/pgmspace.h>
+#include <avr/wdt.h>
 #include <LiquidCrystal.h>
 #include <PID_v1.h>
 
@@ -107,7 +108,7 @@ board, which is hardware versions > 1.0
 // to look up in your display's datasheet. You might try 0xD4 as a second choice.
 #define DEGREE_CHAR (0xDF)
 
-#define VERSION "(84) 0.4"
+#define VERSION "(84) 0.5"
 
 char p_buffer[17]; // enough for one line on the LCD.
 #define _P(str) (strcpy_P(p_buffer, PSTR(str)), p_buffer)
@@ -274,6 +275,10 @@ static unsigned long phaseStartTime(int phase) {
 }
 
 void setup() {
+  // This must happen as early as possible to prevent the watchdog from biting after a restart.
+  MCUSR = 0;
+  wdt_disable();
+  
   display.begin(16, 2);
 #ifdef EXTERNAL_REF
   analogReference(EXTERNAL);
@@ -304,10 +309,13 @@ void setup() {
   display.print(_P(VERSION));
   
   delay(2000);
+  
+  wdt_enable(WDTO_500MS);
   finish();
 }
 
 void loop() {
+  wdt_reset();
   updateTemp();
   boolean doDisplayUpdate = false;
   {
