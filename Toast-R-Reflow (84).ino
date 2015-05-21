@@ -108,7 +108,7 @@ board, which is hardware versions > 1.0
 // to look up in your display's datasheet. You might try 0xD4 as a second choice.
 #define DEGREE_CHAR (0xDF)
 
-#define VERSION "(84) 0.5"
+#define VERSION "(84) 0.5.1"
 
 char p_buffer[17]; // enough for one line on the LCD.
 #define _P(str) (strcpy_P(p_buffer, PSTR(str)), p_buffer)
@@ -361,8 +361,10 @@ void loop() {
     unsigned int event = checkEvent();
     switch(event) {
       case EVENT_SHORT_PUSH:
-      case EVENT_LONG_PUSH:
         display_mode ^= 1; // pick the other mode
+        break;
+      case EVENT_LONG_PUSH:
+        finish();
         break;
     }
 
