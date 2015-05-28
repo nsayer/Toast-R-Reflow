@@ -176,6 +176,15 @@ double setPoint, currentTemp, outputDuty;
 
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
 
+static void Delay(unsigned long ms) {
+  while(ms > 100) {
+    delay(100);
+    wdt_reset();
+    ms -= 100;
+  }
+  delay(ms);
+  wdt_reset();
+}
 // Look for button events. We support "short" pushes and "long" pushes.
 // This method is responsible for debouncing and timing the pushes.
 unsigned int checkEvent() {
@@ -277,7 +286,7 @@ static unsigned long phaseStartTime(int phase) {
 void setup() {
   // This must happen as early as possible to prevent the watchdog from biting after a restart.
   MCUSR = 0;
-  wdt_disable();
+  wdt_enable(WDTO_500MS);
   
   display.begin(16, 2);
 #ifdef EXTERNAL_REF
@@ -308,9 +317,8 @@ void setup() {
   display.setCursor(0, 1);
   display.print(_P(VERSION));
   
-  delay(2000);
+  Delay(2000);
   
-  wdt_enable(WDTO_500MS);
   finish();
 }
 
