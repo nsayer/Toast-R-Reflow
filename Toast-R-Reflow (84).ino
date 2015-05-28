@@ -115,12 +115,12 @@ char p_buffer[17]; // enough for one line on the LCD.
 
 // missing from the Arduino IDE
 #ifndef pgm_read_ptr
-#define pgm_read_ptr(p) ((prog_void*)pgm_read_word(p))
+#define pgm_read_ptr(p) ((PGM_VOID_P)pgm_read_word(p))
 #endif
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
-  prog_char *phase_name;
+  PGM_P phase_name;
   // The duration of this phase, in milliseconds
   unsigned long duration_millis;
   // The setpoint will drift smoothly across the phase from the last
@@ -136,36 +136,36 @@ struct curve_point {
 // so that we can insure that each separate piece makes it into PROGMEM. First, all of the
 // curve point name strings.
 
-char PH_txt[] PROGMEM = "Preheat";
-char SK_txt[] PROGMEM = "Soak";
-char N_txt[] PROGMEM = "";
-char RF_txt[] PROGMEM = "Reflow";
-char CL_txt[] PROGMEM = "Cool";
+const char PH_txt[] PROGMEM = "Preheat";
+const char SK_txt[] PROGMEM = "Soak";
+const char N_txt[] PROGMEM = "";
+const char RF_txt[] PROGMEM = "Reflow";
+const char CL_txt[] PROGMEM = "Cool";
 
 // Next, each curve point, which represents a section of time where the oven will
 // transition from the previous point to the next. It's defined as how much time we
 // will spend, and what the target will be at the end of that time.
 
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
-struct curve_point PT_1 PROGMEM = { PH_txt, 90000, 150.0 };
+const struct curve_point PT_1 PROGMEM = { PH_txt, 90000, 150.0 };
 // Drift more slowly up to 180 deg C over 60 seconds.
-struct curve_point PT_2 PROGMEM = { SK_txt, 60000, 180.0 };
+const struct curve_point PT_2 PROGMEM = { SK_txt, 60000, 180.0 };
 // This entry will cause the setpoint to "snap" to the next temperature rather
 // than drift over the course of an interval. The name won't be displayed because the duration is 0,
 // but a NULL name will end the table, so use an empty string instead.
 // This will force the oven to move to the reflow temperature as quickly as possible.
-struct curve_point PT_3 PROGMEM = { N_txt, 0, 230.0 };
+const struct curve_point PT_3 PROGMEM = { N_txt, 0, 230.0 };
 // It's going to take around 80 seconds to get to peak. Hang out there a bit.
-struct curve_point PT_4 PROGMEM = { RF_txt, 90000, 230.0 };
+const struct curve_point PT_4 PROGMEM = { RF_txt, 90000, 230.0 };
 // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
-struct curve_point PT_5 PROGMEM = { CL_txt, 90000, 100.0 };
+const struct curve_point PT_5 PROGMEM = { CL_txt, 90000, 100.0 };
 // This entry ends the table. Don't leave it out!
-struct curve_point PT_6 PROGMEM = { NULL, 0, 0.0 };
+const struct curve_point PT_END PROGMEM = { NULL, 0, 0.0 };
 
 // Now the actual table itself.
-prog_void* profile[] PROGMEM = { &PT_1, &PT_2, &PT_3, &PT_4, &PT_5, &PT_6 };
+PGM_VOID_P const profile[] PROGMEM = { &PT_1, &PT_2, &PT_3, &PT_4, &PT_5, &PT_END };
 
 LiquidCrystal display(LCD_RS, LCD_RW, LCD_E, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
