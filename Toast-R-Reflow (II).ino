@@ -26,7 +26,7 @@ board, which is model II.
 
 */
 
-#include <avr/progmem.h>
+#include <avr/pgmspace.h>
 #include <avr/wdt.h>
 #include <LiquidCrystal.h>
 #include <PID_v1.h>
@@ -104,7 +104,7 @@ char p_buffer[17];
 
 struct curve_point {
   // Display this string on the display during this phase. Maximum 8 characters long.
-  char *phase_name;
+  PGM_P phase_name;
   // The duration of this phase, in milliseconds
   unsigned long duration_millis;
   // The setpoint will drift smoothly across the phase from the last
@@ -119,71 +119,71 @@ struct curve_point {
 // so that we can insure that each separate piece makes it into PROGMEM. First, all of the
 // curve point name strings.
 
-char PH_txt[] PROGMEM = "Preheat";
-char SK_txt[] PROGMEM = "Soak";
-char N_txt[] PROGMEM = "";
-char RF_txt[] PROGMEM = "Reflow";
-char CL_txt[] PROGMEM = "Cool";
+const char PH_txt[] PROGMEM = "Preheat";
+const char SK_txt[] PROGMEM = "Soak";
+const char N_txt[] PROGMEM = "";
+const char RF_txt[] PROGMEM = "Reflow";
+const char CL_txt[] PROGMEM = "Cool";
 
-char name_a_txt[] PROGMEM = "SnPb";
+const char name_a_txt[] PROGMEM = "SnPb";
 // Next, each curve point, which represents a section of time where the oven will
 // transition from the previous point to the next. It's defined as how much time we
 // will spend, and what the target will be at the end of that time.
 
 // This special entry ends a profile. Always add it to the end!
-struct curve_point PT_END PROGMEM = { NULL, 0, 0.0 };
+const struct curve_point PT_END PROGMEM = { NULL, 0, 0.0 };
 
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
-struct curve_point PT_A_1 PROGMEM = { PH_txt, 90000, 150.0 };
+const struct curve_point PT_A_1 PROGMEM = { PH_txt, 90000, 150.0 };
 // Drift more slowly up to 180 deg C over 60 seconds.
-struct curve_point PT_A_2 PROGMEM = { SK_txt, 60000, 180.0 };
+const struct curve_point PT_A_2 PROGMEM = { SK_txt, 60000, 180.0 };
 // This entry will cause the setpoint to "snap" to the next temperature rather
 // than drift over the course of an interval. The name won't be displayed because the duration is 0,
 // but a NULL name will end the table, so use an empty string instead.
 // This will force the oven to move to the reflow temperature as quickly as possible.
-struct curve_point PT_A_3 PROGMEM = { N_txt, 0, 230.0 };
+const struct curve_point PT_A_3 PROGMEM = { N_txt, 0, 230.0 };
 // It's going to take around 80 seconds to get to peak. Hang out there a bit.
-struct curve_point PT_A_4 PROGMEM = { RF_txt, 90000, 230.0 };
+const struct curve_point PT_A_4 PROGMEM = { RF_txt, 90000, 230.0 };
 // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
-struct curve_point PT_A_5 PROGMEM = { CL_txt, 90000, 100.0 };
+const struct curve_point PT_A_5 PROGMEM = { CL_txt, 90000, 100.0 };
 
 // Now the actual table itself.
-void* profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT_A_5, &PT_END };
+PGM_VOID_P const profile_a[] PROGMEM = { &PT_A_1, &PT_A_2, &PT_A_3, &PT_A_4, &PT_A_5, &PT_END };
 
-char name_b_txt[] PROGMEM = "RoHS";
+const char name_b_txt[] PROGMEM = "RoHS";
 
 // Drift from the ambient temperature to 150 deg C over 90 seconds.
-struct curve_point PT_B_1 PROGMEM = { PH_txt, 90000, 150.0 };
+const struct curve_point PT_B_1 PROGMEM = { PH_txt, 90000, 150.0 };
 // Drift more slowly up to 180 deg C over 60 seconds.
-struct curve_point PT_B_2 PROGMEM = { SK_txt, 60000, 180.0 };
+const struct curve_point PT_B_2 PROGMEM = { SK_txt, 60000, 180.0 };
 // This entry will cause the setpoint to "snap" to the next temperature rather
 // than drift over the course of an interval. The name won't be displayed because the duration is 0,
 // but a NULL name will end the table, so use an empty string instead.
 // This will force the oven to move to the reflow temperature as quickly as possible.
-struct curve_point PT_B_3 PROGMEM = { N_txt, 0, 250.0 };
+const struct curve_point PT_B_3 PROGMEM = { N_txt, 0, 250.0 };
 // It's going to take around 80 seconds to get to peak. Hang out there a bit.
-struct curve_point PT_B_4 PROGMEM = { RF_txt, 90000, 250.0 };
+const struct curve_point PT_B_4 PROGMEM = { RF_txt, 90000, 250.0 };
 // There is a maximum cooling rate to avoid thermal shock. The oven will likely cool slower than
 // this on its own anyway. It might be a good idea to open the door a bit, but if you get over-agressive
 // with cooling, then this entry will compensate for that.
-struct curve_point PT_B_5 PROGMEM = { CL_txt, 90000, 100.0 };
+const struct curve_point PT_B_5 PROGMEM = { CL_txt, 90000, 100.0 };
 
-void* profile_b[] PROGMEM = { &PT_B_1, &PT_B_2, &PT_B_3, &PT_B_4, &PT_B_5, &PT_END };
+PGM_VOID_P const profile_b[] PROGMEM = { &PT_B_1, &PT_B_2, &PT_B_3, &PT_B_4, &PT_B_5, &PT_END };
 
-char name_c_txt[] PROGMEM = "Bake";
+const char name_c_txt[] PROGMEM = "Bake";
 
 // Drift from ambient to 125 deg C over an hour
-struct curve_point PT_C_1 PROGMEM = { PH_txt, 3600000, 125.0 };
+const struct curve_point PT_C_1 PROGMEM = { PH_txt, 3600000, 125.0 };
 // Stay there for 10 more hours
-struct curve_point PT_C_2 PROGMEM = { name_c_txt, 36000000, 125.0 };
+const struct curve_point PT_C_2 PROGMEM = { name_c_txt, 36000000, 125.0 };
 
-void *profile_c[] PROGMEM = { &PT_C_1, &PT_C_2, &PT_END };
+PGM_VOID_P const profile_c[] PROGMEM = { &PT_C_1, &PT_C_2, &PT_END };
 
 #define PROFILE_COUNT 3
-void* profiles[] PROGMEM = { profile_a, profile_b, profile_c };
-void* profile_names[] PROGMEM = { name_a_txt, name_b_txt, name_c_txt };
+PROGMEM PGM_VOID_P const profiles[] = { profile_a, profile_b, profile_c };
+PROGMEM PGM_P const profile_names[] = { name_a_txt, name_b_txt, name_c_txt };
 
 // missing from the Arduino IDE
 #ifndef pgm_read_ptr
@@ -202,6 +202,17 @@ boolean fault; // This is set by updateTemp()
 unsigned char fault_bits; // This too.
 
 PID pid(&currentTemp, &outputDuty, &setPoint, K_P, K_I, K_D, DIRECT);
+
+// Delay, but pet the watchdog while doing it.
+static void Delay(unsigned long ms) {
+  while(ms > 100) {
+    delay(100);
+    wdt_reset();
+    ms -= 100;
+  }
+  delay(ms);
+  wdt_reset();
+}
 
 // Look for button events. We support "short" pushes and "long" pushes.
 // This method is responsible for debouncing and timing the pushes.
@@ -240,7 +251,7 @@ static unsigned int checkEvent() {
 
 static inline void formatTemp(double temp) {
   int deg = (int)(temp * 10);
-  sprintf(p_buffer, "%3d.%1d%cC", deg / 10, deg % 10, DEGREE_CHAR);
+  sprintf(p_buffer, "%3d.%1d%cC ", deg / 10, deg % 10, DEGREE_CHAR);
 }
 
 // Format and display a temperature value.
@@ -344,7 +355,7 @@ static inline unsigned long phaseStartTime(int phase) {
 void setup() {
   // This must be done as early as possible to prevent the watchdog from biting during reset.
   MCUSR = 0;
-  wdt_disable();
+  wdt_enable(WDTO_500MS);
   
   Serial.begin(SERIAL_BAUD);
   display.begin(16, 2);
@@ -376,8 +387,7 @@ void setup() {
   display.setCursor(0, 1);
   display.print(P(VERSION));
   
-  delay(2000);
-  wdt_enable(WDTO_500MS);
+  Delay(2000);
   finish();
 }
 
@@ -506,7 +516,7 @@ void loop() {
         case 1:
           // the oven power
           int mils = (outputDuty * 1000) / PWM_PULSE_WIDTH;
-          sprintf(p_buffer, "%3d.%1d%%  ", mils / 10, mils % 10);
+          sprintf(p_buffer, "%3d.%1d%%   ", mils / 10, mils % 10);
           display.print(p_buffer);
           break;
       }
