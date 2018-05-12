@@ -24,7 +24,8 @@ This project requires the following libraries:
 * LiquidTWI2: https://github.com/lincomatic/LiquidTWI2
 
 It also will require some sort of Arduino IDE support for ATTiny controllers. I used the MIT patch at
-http://hlt.media.mit.edu/?p=1695
+http://hlt.media.mit.edu/?p=1695 originally, but with newer Arduino packages, you should be able to
+use the board manager and find support for raw ATTiny chips.
 
 Note that as of version 0.5, this code tickles a bug in Arduino that you need to work around.
 
@@ -58,6 +59,9 @@ This version requires:
 
 This version also requires ATTiny support, but does not require the patch to wiring_analog.c.
 
+You should configure the IDE for a raw ATTiny84 running at 8 MHz from its internal oscillator. The fuse settings
+for that are: low = 0xE2, high = 0xDF, extended = 0xFF
+
 Model II VERSION
 ================
 
@@ -80,3 +84,9 @@ usbtiny328.build.f_cpu=16000000L
 usbtiny328.build.core=arduino
 usbtiny328.build.variant=standard
 ```
+
+As with the model I controller, with newer Arduino IDEs, the board manager has options for "raw" ATMega chips.
+
+Alternatively, you can load an Arduino bootloader in. If you do this, you can pretend that the board is an Arduino UNO
+for the purposes of bootloading and compiling the firmware. To load the firmware this way, use an FTDI cable and connect
+to the 6 pin serial header on the board and upload the firmware in the usual Arduino manner.
